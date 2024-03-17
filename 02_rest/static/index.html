@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>League of Legends Game History</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            background-color: #11112a;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+
+        .form-container, .table-container {
+            width: 40%;
+            padding: 20px;
+            margin: auto;
+        }
+
+        table {
+            border-collapse: separate;
+            border-spacing: 0 10px;
+            width: 100%;
+            min-width: 800px;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 8px;
+        }
+
+        th {
+            background-color: #191937;
+        }
+
+        .win-row {
+            background-color: #1e2b5e;
+        }
+
+        .loss-row {
+            background-color: #3e223b;
+        }
+
+        img {
+            height: 50px;
+            vertical-align: middle;
+        }
+
+        .items-cell img, .blank-item {
+            width: 50px;
+            height: 50px;
+            margin-right: 5px;
+            display: inline-block;
+            vertical-align: middle;
+        }
+
+        .win-row .blank-item {
+            background-color: #223b80;
+        }
+
+        .loss-row .blank-item {
+            background-color: #53263e;
+        }
+
+        .champion-cell {
+            text-align: center;
+        }
+
+        input, select, button {
+            padding: 8px;
+            margin: 5px;
+        }
+
+        .center {
+            text-align: center;
+        }
+
+        .error-message {
+            color: #ff4747;
+            text-align: center;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="form-container">
+    <form id="historyForm">
+        <input type="text" id="username" name="username" placeholder="Username" required>
+        <input type="text" id="tag" name="tag" placeholder="Tag" required>
+        <select id="server" name="server" required>
+            <option value="br1">BR</option>
+            <option value="eun1">EUNE</option>
+            <option value="euw1">EUW</option>
+            <option value="la1">LAN</option>
+            <option value="la2">LAS</option>
+            <option value="na1">NA</option>
+            <option value="oc1">OCE</option>
+            <option value="ru1">RU</option>
+            <option value="tr1">TR</option>
+            <option value="jp1">JP</option>
+            <option value="kr">KR</option>
+            <option value="ph2">PH</option>
+            <option value="sg2">SG</option>
+            <option value="tw2">TW</option>
+            <option value="th2">TH</option>
+            <option value="vn2">VN</option>
+        </select>
+        <button type="submit">Load Player's Match History</button>
+    </form>
+</div>
+
+<div id="error-message" class="error-message"></div>
+
+<div class="table-container">
+    <table id="game-results">
+        <tr>
+            <th>Result & Duration</th>
+            <th>Champion</th>
+            <th>KDA & CS/min</th>
+            <th>Items</th>
+        </tr>
+    </table>
+</div>
+
+<script>
+    document.getElementById('historyForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        const username = document.getElementById('username').value;
+        const tag = document.getElementById('tag').value;
+        const server = document.getElementById('server').value;
+        fetchHistory(username, tag, server);
+    });
+
+    async function fetchHistory(username, tag, server) {
+        const errorMessageContainer = document.getElementById('error-message');
+        const table = document.getElementById('game-results');
+        errorMessageContainer.textContent = '';
+        const endpoint = "/history";
+        const base = `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`;
+        const url = `${base}${endpoint}?region=${server}&nickname=${username}&tag=${tag}`;
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                let errorMessage = 'Failed to load game history. Please try again.';
+                switch (response.status) {
+                    case 401:
+                    case 403:
+                        errorMessage = 'Service is unauthorized to fetch game data. Try again later.'
+                        break
+                    case 400:
+                    case 404:
+                        errorMessage = 'Game history or player not found. Please check the username, tag, and server and try again.';
+                        break;
+                    case 429:
+                        errorMessage = 'This service is rate limited, try again later.'
+                        break
+                    case 502:
+                    case 503:
+                    case 504:
+                        errorMessage = 'Connection error, try again later.'
+                        break
+                    case 500:
+                        errorMessage = 'Server error occurred. Please try again later.';
+                        break;
+                }
+                throw new Error(errorMessage);
+            }
+            const historyEntries = await response.json();
+            populateTable(historyEntries);
+        } catch (error) {
+            console.error('Error fetching game history:', error);
+            errorMessageContainer.textContent = error.message;
+            table.innerHTML = `<tr>
+                <th>Result & Duration</th>
+                <th>Champion</th>
+                <th>KDA & CS/min</th>
+                <th>Items</th>
+            </tr>`;
+        }
+    }
+
+
+    function populateTable(historyEntries) {
+        const table = document.getElementById('game-results');
+        table.innerHTML = `<tr>
+            <th>Result & Duration</th>
+            <th>Champion</th>
+            <th>KDA & CS/min</th>
+            <th>Items</th>
+        </tr>`;
+
+        historyEntries.forEach(entry => {
+            const kdaRatio = entry.deaths === 0 ? 'Perfect' : ((entry.kills + entry.assists) / entry.deaths).toFixed(2);
+            const csPerMin = (entry.creep_score / (entry.game_duration / 60)).toFixed(2);
+            const gameDuration = `${Math.floor(entry.game_duration / 60)}:${('0' + entry.game_duration % 60).slice(-2)}`;
+            const gameStart = new Date(entry.game_start).toISOString().replace('T', ' ').substring(0, 16);
+
+            const itemsHtml = Array.from({length: 7}, (_, i) => entry.items[i]
+                ? `<img src="${entry.items[i]}" alt="Item" class="item-icon">`
+                : `<div class="blank-item"></div>`).join('');
+
+            const row = `<tr class="${entry.win ? 'win-row' : 'loss-row'}">
+                <td class="center">
+                    ${entry.game_mode}<br>
+                    ${entry.win ? 'Win' : 'Loss'}<br>
+                    ${gameDuration} min<br>
+                    <small>${gameStart}</small>
+                </td>
+                <td class="champion-cell">
+                    <img src="${entry.champion_icon}" alt="${entry.champion_name}" class="champion-portrait"><br>
+                    ${entry.champion_name}
+                </td>
+                <td class="center">
+                    ${entry.kills} / ${entry.deaths} / ${entry.assists}<br>
+                    ${kdaRatio} KDA<br>${entry.creep_score} CS (${csPerMin})
+                </td>
+                <td class="items-cell">
+                    ${itemsHtml}
+                </td>
+            </tr>`;
+
+            table.innerHTML += row;
+        });
+    }
+</script>
+</body>
+</html>
